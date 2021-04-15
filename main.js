@@ -6,9 +6,12 @@ const logger = require('./helpers/logger');
 const encode = require('./helpers/encode');
 
 class Binance {
-  constructor({ API_KEY, SECRET_KEY }) {
-    this.API_KEY = API_KEY;
-    this.SECRET_KEY = SECRET_KEY;
+  /**
+   * @param {{ API_KEY: string; SECRET_KEY: string }} secrets
+   */
+  constructor(secrets = undefined) {
+    this.API_KEY = secrets?.API_KEY;
+    this.SECRET_KEY = secrets?.SECRET_KEY;
 
     this.timeDiff = null;
 
@@ -24,10 +27,10 @@ class Binance {
    * Initialize Binance api
    */
   async init() {
-    await this.setBinanceTimeDiff();
+    await this._setBinanceTimeDiff();
   }
 
-  setBinanceTimeDiff() {
+  _setBinanceTimeDiff() {
     const timeEndpoint = '/api/v3/time';
 
     return new Promise((resolve) => {
@@ -40,17 +43,20 @@ class Binance {
     });
   }
 
-  getTimestamp() {
+  _getTimestamp() {
     return new Date().getTime() - (this.timeDiff || 0);
   }
 
-  async binanceFetch({ endpoint, method, headers }, signed, options) {
+  async _binanceFetch({ endpoint, method, headers }, signed, options) {
     if (!this.timeDiff) {
       logger('error', 'Time diff is not defined');
       throw Error('Time diff is not defined');
     }
 
-    const _options = options;
+    const _options = {
+      ...options,
+      timestamp: this._getTimestamp(),
+    };
 
     if (!signed) {
       delete _options.timestamp;
@@ -58,18 +64,29 @@ class Binance {
 
     const params = qs.stringify(_options);
 
-    const signature = signed ? `&signature=${encode(params, this.SECRET_KEY)}` : '';
+    let _url = `${this.API_URL}${endpoint}?${params}`;
+    const _method = method || 'GET';
+    let _headers = headers;
 
-    const _url = `${this.API_URL}${endpoint}?${params}${signature}`;
-    const _headers = headers || {
-      'X-MBX-APIKEY': this.API_KEY,
-    };
+    if (signed) {
+      if (!this.API_KEY || !this.SECRET_KEY) {
+        throw Error('Invalid api key or secret key');
+      }
+
+      const signature = signed ? `&signature=${encode(params, this.SECRET_KEY)}` : '';
+
+      _url += signature;
+      _headers = {
+        ...headers,
+        'X-MBX-APIKEY': this.API_KEY,
+      };
+    }
 
     // eslint-disable-next-line consistent-return
     return new Promise((resolve, reject) => {
       try {
         fetch({
-          method,
+          method: _method,
           url: _url,
           headers: _headers,
         }, (data) => {
@@ -90,7 +107,7 @@ class Binance {
    * Spot account requests
    */
   get spot() {
-    const publicRequests = {
+    return {
       /**
        * Get spot candlesticks data
        *
@@ -110,84 +127,108 @@ class Binance {
 
         const candlesticksEndpoint = '/api/v3/klines';
 
-        const data = await this.binanceFetch({
+        let candlesticks = await this._binanceFetch({
           endpoint: candlesticksEndpoint,
-          method: 'GET',
         }, false, _options);
+
+        const getAdditionalCandlesticks = async (limit, lastCandle) => {
+          const endTime = lastCandle[0];
+
+          if (limit > 1000) {
+            const additionalCandlesticks = await this._binanceFetch({
+              endpoint: candlesticksEndpoint,
+            }, false, {
+              symbol,
+              interval,
+              limit,
+              endTime: endTime - 1000,
+            });
+
+            candlesticks = [...additionalCandlesticks, ...candlesticks];
+
+            if (!additionalCandlesticks.length || additionalCandlesticks.length < 1000) {
+              return;
+            }
+
+            await getAdditionalCandlesticks(limit - 1000, additionalCandlesticks[0]);
+            return;
+          }
+          const additionalCandlesticks = await this._binanceFetch({
+            endpoint: candlesticksEndpoint,
+          }, false, {
+            symbol,
+            interval,
+            limit,
+            endTime: endTime - 1000,
+          });
+
+          candlesticks = [...additionalCandlesticks, ...candlesticks];
+        };
+
+        if (_options.limit > 1000) {
+          await getAdditionalCandlesticks(_options.limit - 1000, candlesticks[0]);
+        }
+
+        return candlesticks;
+      },
+
+      /* ---- SIGNED REQUESTS ---- */
+
+      /**
+       * Get user balances
+       */
+      getUserBalances: async () => {
+        const accountEndpoint = '/api/v3/account';
+
+        const data = await this._binanceFetch({
+          endpoint: accountEndpoint,
+          method: 'GET',
+        }, true);
+
+        return data.balances;
+      },
+
+      getOpenOrders: async () => {
+        const allOrdersEndpoint = '/api/v3/openOrders';
+
+        const data = await this._binanceFetch({
+          endpoint: allOrdersEndpoint,
+          method: 'GET',
+        }, true);
 
         return data;
       },
-    };
 
-    const privateRequests = () => {
-      if (!this.API_KEY || !this.SECRET_KEY) {
-        throw Error('Invalid api key or secret key');
-      }
+      /**
+       * Send order
+       *
+       * @param {string} symbol
+       * @param {string} side
+       * @param {string} type
+       * @param {number} quantity
+       * @param {{}} options
+       */
+      sendOrder: async (symbol, side, type, quantity, options = undefined) => {
+        const newOrderEndpoint = '/api/v3/order';
 
-      return {
-        /**
-         * Get user balances
-         */
-        getUserBalances: async () => {
-          const accountEndpoint = '/api/v3/account';
+        const _options = {
+          symbol,
+          side,
+          type,
+          quantity,
+        };
 
-          const data = await this.binanceFetch({
-            endpoint: accountEndpoint,
-            method: 'GET',
-          }, true);
+        if (options && typeof options === 'object') {
+          Object.assign(_options, options);
+        }
 
-          return data.balances;
-        },
+        const data = await this._binanceFetch({
+          endpoint: newOrderEndpoint,
+          method: 'POST',
+        }, true, _options);
 
-        getOpenOrders: async () => {
-          const allOrdersEndpoint = '/api/v3/openOrders';
-
-          const data = await this.binanceFetch({
-            endpoint: allOrdersEndpoint,
-            method: 'GET',
-          }, true);
-
-          return data;
-        },
-
-        /**
-         * Send order
-         *
-         * @param {string} symbol
-         * @param {string} side
-         * @param {string} type
-         * @param {number} quantity
-         * @param {{}} options
-         */
-        sendOrder: async (symbol, side, type, quantity, options = undefined) => {
-          const newOrderEndpoint = '/api/v3/order';
-
-          const _options = {
-            symbol,
-            side,
-            type,
-            quantity,
-          };
-
-          if (options && typeof options === 'object') {
-            Object.assign(_options, options);
-          }
-
-          const data = await this.binanceFetch({
-            endpoint: newOrderEndpoint,
-            method: 'POST',
-          }, true, {
-            _options,
-          });
-
-          return data;
-        },
-      };
-    };
-
-    return {
-      ...privateRequests(),
-      ...publicRequests,
+        return data;
+      },
     };
   }
 

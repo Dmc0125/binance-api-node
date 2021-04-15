@@ -1,16 +1,18 @@
 {
-  "name": "binance-api",
-  "version": "0.0.1",
+  "name": "binance-api-nodejs",
+  "version": "0.0.2",
   "description": "Binance api for nodejs",
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "dev": "nodemon main.js"
+    "dev": "nodemon main.js",
+    "test": "nodemon test/test.js"
   },
   "keywords": [],
   "author": "dmc0125",
   "license": "MIT",
   "devDependencies": {
+    "dotenv": "^8.2.0",
     "eslint": "^7.23.0",
     "eslint-config-airbnb-base": "^14.2.1",
     "eslint-plugin-import": "^2.22.1",
