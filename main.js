@@ -169,7 +169,21 @@ class Binance {
           await getAdditionalCandlesticks(_options.limit - 1000, candlesticks[0]);
         }
 
-        return candlesticks;
+        return Array.isArray(candlesticks) ? candlesticks.map(([
+          openTime, o, h, l, c, volume, closeTime, quoteVolume, numberOfTrades, takerBuyVolume, takerBuyQuoteVolume,
+        ]) => ({
+          openTime,
+          closeTime,
+          numberOfTrades,
+          o: +o,
+          h: +h,
+          l: +l,
+          c: +c,
+          volume: +volume,
+          quoteVolume: +quoteVolume,
+          takerBuyVolume: +takerBuyVolume,
+          takerBuyQuoteVolume: +takerBuyQuoteVolume,
+        })) : candlesticks;
       },
 
       /* ---- SIGNED REQUESTS ---- */
@@ -185,7 +199,15 @@ class Binance {
           method: 'GET',
         }, true);
 
-        return data.balances;
+        if (!data) {
+          return [];
+        }
+
+        if (!data.balances) {
+          logger('error', 'BalanceData error:', data);
+        }
+
+        return data.balances.map(({ asset, free, locked }) => ({ asset, available: free, inOrder: locked }));
       },
 
       getOpenOrders: async () => {
