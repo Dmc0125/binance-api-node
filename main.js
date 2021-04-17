@@ -309,8 +309,8 @@ class Binance {
       }
     };
 
-    const initWebsocket = (streamNames) => {
-      if (this.websocket) {
+    const initWebsocket = (streamNames, reconnecting = false) => {
+      if (this.websocket && !reconnecting) {
         subscribe(streamNames);
         return;
       }
@@ -339,7 +339,7 @@ class Binance {
       });
 
       this.websocket.on('close', () => {
-        initWebsocket(this.streams);
+        initWebsocket(this.streams, true);
       });
     };
 
