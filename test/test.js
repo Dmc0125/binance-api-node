@@ -11,9 +11,10 @@ const test = async () => {
 
   // const candlesticks = await binance.spot.candlesticks('BTCUSDT', '4h', { limit: 100 });
   // const sendOrder = await binance.spot.sendOrder('BTCUSDT', 'BUY', 'MARKET', 0.001);
-  const userBalances = await binance.spot.getUserBalances();
+  // const userBalances = await binance.spot.getUserBalances();
+  // const filters = await binance.spot.filters();
 
-  console.log(userBalances);
+  // console.log(filters.BTCUSDT);
 };
 
 test();

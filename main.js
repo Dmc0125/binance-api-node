@@ -13,13 +13,25 @@ class Binance {
     this.API_KEY = secrets?.API_KEY;
     this.SECRET_KEY = secrets?.SECRET_KEY;
 
+    /**
+     * @private
+     */
     this.timeDiff = null;
 
     this.API_URL = 'https://api.binance.com';
     this.WS_URL = 'wss://stream.binance.com:9443/stream?streams=';
 
+    /**
+     * @private
+     */
     this.websocket = null;
+    /**
+     * @private
+     */
     this.streams = [];
+    /**
+     * @private
+     */
     this.onMessageFunctions = {};
   }
 
@@ -30,6 +42,9 @@ class Binance {
     await this._setBinanceTimeDiff();
   }
 
+  /**
+   * @private
+   */
   _setBinanceTimeDiff() {
     const timeEndpoint = '/api/v3/time';
 
@@ -43,10 +58,16 @@ class Binance {
     });
   }
 
+  /**
+   * @private
+   */
   _getTimestamp() {
     return new Date().getTime() - (this.timeDiff || 0);
   }
 
+  /**
+   * @private
+   */
   async _binanceFetch({ endpoint, method, headers }, signed, options) {
     if (!this.timeDiff) {
       logger('error', 'Time diff is not defined');
@@ -184,6 +205,21 @@ class Binance {
           takerBuyVolume: +takerBuyVolume,
           takerBuyQuoteVolume: +takerBuyQuoteVolume,
         })) : candlesticks;
+      },
+
+      filters: async () => {
+        const filtersEndpoint = '/api/v3/exchangeInfo';
+
+        const { symbols } = await this._binanceFetch({ endpoint: filtersEndpoint }, false);
+
+        return symbols.reduce((allFilters, { symbol, filters: marketFilters }) => {
+          // eslint-disable-next-line no-param-reassign
+          allFilters[symbol] = marketFilters.reduce((acc, { filterType, ..._filters }) => {
+            acc[filterType] = _filters;
+            return acc;
+          }, {});
+          return allFilters;
+        }, {});
       },
 
       /* ---- SIGNED REQUESTS ---- */
