@@ -316,7 +316,7 @@ function Binance(secrets = undefined) {
         this.websocket.on('message', (dataJSON) => {
           const data = JSON.parse(dataJSON);
 
-          if (data?.stream) {
+          if (typeof data === 'object' && data.stream) {
             Object.keys(this.onMessageFunctions).forEach((fnKey) => {
               if (data.stream.includes(fnKey)) {
                 this.onMessageFunctions[fnKey](data);
