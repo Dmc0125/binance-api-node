@@ -9,8 +9,8 @@ const encode = require('./helpers/encode');
  * @param {{ API_KEY: string; SECRET_KEY: string }} secrets
  */
 function Binance(secrets = undefined) {
-  this.API_KEY = secrets?.API_KEY;
-  this.SECRET_KEY = secrets?.SECRET_KEY;
+  this.API_KEY = typeof secrets === 'object' ? secrets.API_KEY : undefined;
+  this.SECRET_KEY = typeof secrets === 'object' ? secrets.SECRET_KEY : undefined;
 
   /**
    * @private
