@@ -1,6 +1,6 @@
 {
   "name": "binance-api-nodejs",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Binance api for nodejs",
   "main": "main.js",
   "types": "types.d.ts",
