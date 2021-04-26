@@ -49,31 +49,26 @@ function Binance(secrets = undefined) {
     });
   };
 
-  const _binanceFetch = ({ endpoint, method, headers }, signed, options) => {
-    if (!this.timeDiff) {
-      logger('error', 'Time diff is not defined');
-      throw Error('Time diff is not defined');
-    }
-
+  const _binanceFetch = async ({ endpoint, method, headers }, signed, options) => {
     const _options = {
       ...options,
-      timestamp: new Date().getTime() - (this.timeDiff || 0),
     };
-
-    if (!signed) {
-      delete _options.timestamp;
-    }
-
-    const params = qs.stringify(_options);
-
-    let _url = `${this.API_URL}${endpoint}?${params}`;
+    let _url = `${this.API_URL}${endpoint}`;
     const _method = method || 'GET';
     let _headers = headers;
+
+    let params = null;
 
     if (signed) {
       if (!this.API_KEY || !this.SECRET_KEY) {
         throw Error('Invalid api key or secret key');
       }
+
+      await _setBinanceTimeDiff();
+      _options.timestamp = new Date().getTime() - (this.timeDiff || 0);
+
+      params = qs.stringify(_options);
+      _url += `?${params}`;
 
       const signature = signed ? `&signature=${encode(params, this.SECRET_KEY)}` : '';
 
@@ -82,6 +77,11 @@ function Binance(secrets = undefined) {
         ...headers,
         'X-MBX-APIKEY': this.API_KEY,
       };
+    }
+
+    if (typeof params !== 'string') {
+      params = qs.stringify(_options);
+      _url += `?${params}`;
     }
 
     // eslint-disable-next-line consistent-return
@@ -103,13 +103,6 @@ function Binance(secrets = undefined) {
         reject(error);
       }
     });
-  };
-
-  /**
-   * Initialize Binance api
-   */
-  this.init = async () => {
-    await _setBinanceTimeDiff();
   };
 
   /**
