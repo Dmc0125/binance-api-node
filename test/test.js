@@ -8,17 +8,27 @@ const test = async () => {
     SECRET_KEY: process.env.SECRET_KEY,
   });
 
-  const candlesticks = await binance.spot.candlesticks('BTCUSDT', '15m', { limit: 500 });
-  // const buy = await binance.spot.sendOrder('ETHUSDT', 'BUY', 'MARKET', 0.001);
-  // const sell = await binance.spot.sendOrder('ETHUSDT', 'SELL', 'MARKET', 0.001);
-  const userBalances = await binance.spot.getUserBalances();
-  // const filters = await binance.spot.filters();
+  try {
+    console.log(await binance.spot.candlesticks('BTCUSDT', '15m', { limit: 5 }));
 
-  binance.spotWebsockets.candlesticks([['ETHUSDT', '1m']], () => {
-    console.log('lol')
-  });
+    console.log(await binance.spot.accountBalances());
 
-  console.log(userBalances);
+    console.log(await binance.spot.sendOrder('BTCUSDT', 'BUY', 'MARKET', 0.001));
+
+    console.log(await binance.spot.filters());
+
+    console.log(await binance.spot.openOrders());
+
+    binance.spotWebsockets.candlesticks([['ETHUSDT', '1m']], (data) => {
+      console.log(data);
+    });
+
+    binance.spotWebsockets.allTickers((data) => {
+      console.log(data);
+    });
+  } catch (error) {
+    console.error(error);
+  }
 };
 
 test();

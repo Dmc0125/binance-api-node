@@ -1,63 +1,51 @@
 const Websocket = require('ws');
 const qs = require('qs');
+const fetch = require('node-fetch');
 
-const fetch = require('./helpers/fetch');
 const logger = require('./helpers/logger');
 const encode = require('./helpers/encode');
 
 class Binance {
-  /**
-   * @param {{ API_KEY: string; SECRET_KEY: string }} secrets
-   */
-  constructor(secrets = undefined) {
-    this.API_KEY = typeof secrets === 'object' ? secrets.API_KEY : undefined;
-    this.SECRET_KEY = typeof secrets === 'object' ? secrets.SECRET_KEY : undefined;
-
-    /**
-     * @private
-     */
-    this.timeDiff = null;
-
+  constructor(options = undefined) {
     this.API_URL = 'https://api.binance.com';
     this.WS_URL = 'wss://stream.binance.com:9443/stream?streams=';
 
-    /**
-     * @private
-     */
-    this.websocket = null;
-    /**
-     * @private
-     */
-    this.streams = [];
-    /**
-     * @private
-     */
-    this.onMessageFunctions = {};
+    this.API_KEY = undefined;
+    this.SECRET_KEY = undefined;
+
+    if (options) {
+      this.API_KEY = options.API_KEY;
+      this.SECRET_KEY = options.SECRET_KEY;
+    }
+
+    this._timeDiff = null;
+
+    this._websocket = null;
+    this._streams = [];
+    this._onMessageFunctions = {};
   }
 
-  /**
-   * @private
-   */
-  _setBinanceTimeDiff() {
+  async _setBinanceTimeDiff() {
     const timeEndpoint = '/api/v3/time';
 
-    return new Promise((resolve) => {
-      fetch({
-        url: `${this.API_URL}${timeEndpoint}`,
-      }, (data) => {
-        this.timeDiff = new Date().getTime() - data.serverTime;
-        resolve();
-      });
-    });
+    const res = await fetch(`${this.API_URL}${timeEndpoint}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      // eslint-disable-next-line no-throw-literal
+      throw { success: false, ...data };
+    }
+
+    this._timeDiff = new Date().getTime() - data.serverTime;
   }
 
-  async _binanceFetch({ endpoint, method, headers }, signed, options) {
+  async _binanceFetch({ endpoint, method = 'GET', headers }, signed, options) {
+    let _url = `${this.API_URL}${endpoint}`;
+    let _headers = headers;
+
     const _options = {
       ...options,
     };
-    let _url = `${this.API_URL}${endpoint}`;
-    const _method = method || 'GET';
-    let _headers = headers;
 
     let params = null;
 
@@ -67,7 +55,7 @@ class Binance {
       }
 
       await this._setBinanceTimeDiff();
-      _options.timestamp = new Date().getTime() - (this.timeDiff || 0);
+      _options.timestamp = new Date().getTime() - (this._timeDiff || 0);
 
       params = qs.stringify(_options);
       _url += `?${params}`;
@@ -86,39 +74,23 @@ class Binance {
       _url += `?${params}`;
     }
 
-    // eslint-disable-next-line consistent-return
-    return new Promise((resolve, reject) => {
-      try {
-        fetch({
-          method: _method,
-          url: _url,
-          headers: _headers,
-        }, (data) => {
-          try {
-            resolve(data);
-          } catch (error) {
-            // eslint-disable-next-line prefer-promise-reject-errors
-            reject(`Fetch error: ${error.statusCode}`);
-          }
-        });
-      } catch (error) {
-        reject(error);
-      }
+    const res = await fetch(_url, {
+      method,
+      headers: _headers,
     });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      // eslint-disable-next-line no-throw-literal
+      throw { status: res.status, ...data };
+    }
+
+    return data;
   }
 
-  /**
-   * Spot account requests
-   */
   get spot() {
     return {
-      /**
-     * Get spot candlesticks data
-     *
-     * @param {string} symbol
-     * @param {string} interval
-     * @param {{ startTime?: number; endTime?: number; limit?: number } | undefined} options
-     */
       candlesticks: async (symbol, interval, options = undefined) => {
         const _options = {
           symbol,
@@ -173,7 +145,7 @@ class Binance {
           await getAdditionalCandlesticks(_options.limit - 1000, candlesticks[0]);
         }
 
-        return Array.isArray(candlesticks) ? candlesticks.map(([
+        return candlesticks.map(([
           openTime, o, h, l, c, volume, closeTime, quoteVolume, numberOfTrades, takerBuyVolume, takerBuyQuoteVolume,
         ]) => ({
           openTime,
@@ -187,7 +159,7 @@ class Binance {
           quoteVolume: +quoteVolume,
           takerBuyVolume: +takerBuyVolume,
           takerBuyQuoteVolume: +takerBuyQuoteVolume,
-        })) : candlesticks;
+        }));
       },
 
       filters: async () => {
@@ -207,10 +179,7 @@ class Binance {
 
       /* ---- SIGNED REQUESTS ---- */
 
-      /**
-     * Get user balances
-     */
-      getUserBalances: async () => {
+      accountBalances: async () => {
         const accountEndpoint = '/api/v3/account';
 
         const data = await this._binanceFetch({
@@ -218,49 +187,36 @@ class Binance {
           method: 'GET',
         }, true);
 
-        if (!data) {
-          return [];
-        }
-
-        if (!data.balances) {
-          logger('error', 'BalanceData error:', data);
-        }
-
         return data.balances.map(({ asset, free, locked }) => ({ asset, available: free, inOrder: locked }));
       },
 
-      getOpenOrders: async () => {
+      openOrders: async (options = undefined) => {
         const allOrdersEndpoint = '/api/v3/openOrders';
 
         const data = await this._binanceFetch({
           endpoint: allOrdersEndpoint,
           method: 'GET',
-        }, true);
+        }, true, options);
 
         return data;
       },
 
-      /**
-     * Send order
-     *
-     * @param {string} symbol
-     * @param {string} side
-     * @param {string} type
-     * @param {number} quantity
-     * @param {{}} options
-     */
       sendOrder: async (symbol, side, type, quantity, options = undefined) => {
         const newOrderEndpoint = '/api/v3/order';
 
-        const _options = {
+        let _options = {
           symbol,
           side,
           type,
           quantity,
+          newOrderRespType: 'FULL',
         };
 
         if (options && typeof options === 'object') {
-          Object.assign(_options, options);
+          _options = {
+            ..._options,
+            ...options,
+          };
         }
 
         const data = await this._binanceFetch({
@@ -274,92 +230,81 @@ class Binance {
   }
 
   get spotWebsockets() {
-    const subscribe = (streamNames) => {
-      if (this.websocket.readyState === 1) {
-        this.streams = [...this.streams, ...streamNames];
-        this.websocket.send(JSON.stringify({
-          method: 'SUBSCRIBE',
-          params: streamNames,
-          id: 2,
-        }));
-        logger('info', 'Listening to streams:', this.streams.join(', '));
-      }
-
-      if (this.websocket.readyState === 0) {
-        setTimeout(() => {
-          subscribe(streamNames);
-        }, 5000);
-      }
-    };
-
-    const initWebsocket = (streamNames, reconnecting = false) => {
-      if (this.websocket && !reconnecting) {
-        subscribe(streamNames);
-        return;
-      }
-
-      this.streams = streamNames;
-
-      this.websocket = new Websocket(`${this.WS_URL}${streamNames.join('/')}`, {
-        method: 'SUBSCRIBE',
-        id: 1,
-      });
-
-      this.websocket.on('open', () => {
-        logger('info', 'Listening to streams:', this.streams.join(', '), '\n');
-      });
-
-      this.websocket.on('message', (dataJSON) => {
-        const data = JSON.parse(dataJSON);
-
-        if (typeof data === 'object' && data.stream) {
-          Object.keys(this.onMessageFunctions).forEach((fnKey) => {
-            if (data.stream.includes(fnKey)) {
-              this.onMessageFunctions[fnKey](data);
-            }
-          });
-        }
-      });
-
-      this.websocket.on('close', () => {
-        initWebsocket(this.streams, true);
-      });
-    };
-
     return {
-      /**
-         * Subscribes to kline/candlesticks websocket stream
-         *
-         * @param {Array<Array<string, string>>} streamNames Array of arrays of symbol and timeframe
-         * @param {function} onMessageFn
-         */
       candlesticks: (streamNames, onMessageFn) => {
-        if (this.onMessageFunctions.candlesticks) {
+        if (this._onMessageFunctions.candlesticks) {
           return;
         }
 
         const streams = streamNames.map(([symbol, timeframe]) => `${symbol.toLowerCase()}@kline_${timeframe}`);
-        initWebsocket(streams);
+        this._initWebsocket(streams);
 
-        this.onMessageFunctions.kline = onMessageFn;
+        this._onMessageFunctions.kline = onMessageFn;
       },
 
-      /**
-         * Subscribes to allTickers websocket stream
-         *
-         * @param {function} onMessageFn
-         */
       allTickers: (onMessageFn) => {
-        if (this.onMessageFunctions.allTickers) {
+        if (this._onMessageFunctions.allTickers) {
           return;
         }
 
         const stream = '!ticker@arr';
-        initWebsocket([stream]);
+        this._initWebsocket([stream]);
 
-        this.onMessageFunctions[stream] = onMessageFn;
+        this._onMessageFunctions[stream] = onMessageFn;
       },
     };
+  }
+
+  _initWebsocket(streamNames, reconnecting = false) {
+    if (this._websocket && !reconnecting) {
+      this._subscribe(streamNames);
+      return;
+    }
+
+    this._streams = streamNames;
+
+    this._websocket = new Websocket(`${this.WS_URL}${streamNames.join('/')}`, {
+      method: 'SUBSCRIBE',
+      id: 1,
+    });
+
+    this._websocket.on('open', () => {
+      logger('info', 'Listening to streams:', this._streams.join(', '), '\n');
+    });
+
+    this._websocket.on('message', (dataJSON) => {
+      const data = JSON.parse(dataJSON);
+
+      if (typeof data === 'object' && data.stream) {
+        Object.keys(this._onMessageFunctions).forEach((fnKey) => {
+          if (data.stream.includes(fnKey)) {
+            this._onMessageFunctions[fnKey](data);
+          }
+        });
+      }
+    });
+
+    this._websocket.on('close', () => {
+      this._initWebsocket(this._streams, true);
+    });
+  }
+
+  _subscribe(streamNames) {
+    if (this._websocket.readyState === 1) {
+      this._streams = [...this._streams, ...streamNames];
+      this._websocket.send(JSON.stringify({
+        method: 'SUBSCRIBE',
+        params: streamNames,
+        id: 2,
+      }));
+      logger('info', 'Listening to streams:', this._streams.join(', '));
+    }
+
+    if (this._websocket.readyState === 0) {
+      setTimeout(() => {
+        this._subscribe(streamNames);
+      }, 5000);
+    }
   }
 }
 
