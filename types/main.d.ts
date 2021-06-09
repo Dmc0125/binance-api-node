@@ -251,7 +251,7 @@ declare class Binance {
   private _binanceFetch
 
   get spot(): {
-      candlesticks: (symbol: string, interval: string, options?: Binance.CandlesticksOptions) => Promise<Binance.CandlesticksResponse>;
+      candlesticks: (symbol: string, interval: string, options?: Binance.CandlesticksOptions) => Promise<Binance.CandlesticksResponse[]>;
 
       filters: () => Promise<Binance.FiltersResponse>;
 

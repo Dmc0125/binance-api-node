@@ -2,8 +2,7 @@ const Websocket = require('ws');
 const qs = require('qs');
 const fetch = require('node-fetch');
 
-const logger = require('./helpers/logger');
-const encode = require('./helpers/encode');
+const { getResolution, logger, encode } = require('./utils');
 
 class Binance {
   constructor(options = undefined) {
@@ -92,57 +91,57 @@ class Binance {
   get spot() {
     return {
       candlesticks: async (symbol, interval, options = undefined) => {
+        const candlesticksEndpoint = '/api/v3/klines';
+        const candlesticksLimit = 5;
+        const resolution = getResolution(interval);
+
+        if (resolution === 1) {
+          return [];
+        }
+
         const _options = {
           symbol,
           interval,
         };
 
-        if (options && typeof options === 'object') {
-          Object.assign(_options, options);
-        }
+        let candlesticks = [];
 
-        const candlesticksEndpoint = '/api/v3/klines';
-
-        let candlesticks = await this._binanceFetch({
-          endpoint: candlesticksEndpoint,
-        }, false, _options);
-
-        const getAdditionalCandlesticks = async (limit, lastCandle) => {
-          const endTime = lastCandle[0];
-
-          if (limit > 1000) {
-            const additionalCandlesticks = await this._binanceFetch({
-              endpoint: candlesticksEndpoint,
-            }, false, {
-              symbol,
-              interval,
-              limit,
-              endTime: endTime - 1000,
+        const getCandlesticks = async (limit, endTime) => {
+          if (limit > candlesticksLimit) {
+            const additionalCandlesticks = await this._binanceFetch({ endpoint: candlesticksEndpoint }, false, {
+              ..._options,
+              limit: Math.min(limit, candlesticksLimit),
+              endTime,
             });
 
             candlesticks = [...additionalCandlesticks, ...candlesticks];
 
-            if (!additionalCandlesticks.length || additionalCandlesticks.length < 1000) {
+            if (!additionalCandlesticks.length || additionalCandlesticks.length < candlesticksLimit) {
               return;
             }
 
-            await getAdditionalCandlesticks(limit - 1000, additionalCandlesticks[0]);
+            await getCandlesticks(limit - candlesticksLimit, additionalCandlesticks[0][0] - 1000);
             return;
           }
-          const additionalCandlesticks = await this._binanceFetch({
-            endpoint: candlesticksEndpoint,
-          }, false, {
-            symbol,
-            interval,
+
+          const additionalCandlesticks = await this._binanceFetch({ endpoint: candlesticksEndpoint }, false, {
+            ..._options,
             limit,
-            endTime: endTime - 1000,
+            endTime,
           });
 
           candlesticks = [...additionalCandlesticks, ...candlesticks];
         };
 
-        if (_options.limit > 1000) {
-          await getAdditionalCandlesticks(_options.limit - 1000, candlesticks[0]);
+        const { endTime, startTime, limit } = typeof options === 'object' ? options : {};
+
+        if (endTime && startTime) {
+          const difference = Math.round((endTime - startTime) / resolution);
+          await getCandlesticks(difference, endTime);
+        } else if (endTime && limit) {
+          await getCandlesticks(limit, endTime);
+        } else {
+          await getCandlesticks(limit);
         }
 
         return candlesticks.map(([
