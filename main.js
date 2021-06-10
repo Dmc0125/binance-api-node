@@ -92,7 +92,7 @@ class Binance {
     return {
       candlesticks: async (symbol, interval, options = undefined) => {
         const candlesticksEndpoint = '/api/v3/klines';
-        const candlesticksLimit = 5;
+        const candlesticksLimit = 1000;
         const resolution = getResolution(interval);
 
         if (resolution === 1) {
